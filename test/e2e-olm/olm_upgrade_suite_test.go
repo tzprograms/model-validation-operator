@@ -18,6 +18,7 @@ package e2eolm
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ const (
 )
 
 var olmNamespace string
+var config upgradeConfig
 
 func detectOLMNamespace() string {
 	if utils.KubectlResourceExists("ns", "openshift-operator-lifecycle-manager", "") {
@@ -52,6 +54,11 @@ func TestOLMUpgrade(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	By("validating upgrade inputs before contacting the cluster")
+	var err error
+	config, err = readUpgradeConfig(os.Getenv)
+	Expect(err).NotTo(HaveOccurred())
+
 	By("detecting OLM namespace")
 	olmNamespace = detectOLMNamespace()
 	_, _ = fmt.Fprintf(GinkgoWriter, "Using OLM namespace: %s\n", olmNamespace)

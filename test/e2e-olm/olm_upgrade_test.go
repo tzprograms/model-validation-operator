@@ -18,7 +18,6 @@ package e2eolm
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"time"
 
@@ -26,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"    //nolint:revive
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/sigstore/model-validation-operator/api/v1alpha1"
 	"github.com/sigstore/model-validation-operator/internal/constants"
 	utils "github.com/sigstore/model-validation-operator/test/utils"
 )
@@ -44,21 +44,9 @@ func cleanupResource(resource, name, namespace string) {
 	_, _ = utils.Run(exec.Command("kubectl", args...))
 }
 
-func envOrDefault(key, defaultValue string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultValue
-}
-
 var _ = Describe("OLM Upgrade", Ordered, func() {
-	var (
-		baseCatalogImage   string
-		targetCatalogImage string
-		channelName        string
-		packageName        string
-		baseCSV            string
-	)
+	var baseCSV string
+	var originalModel v1alpha1.ModelValidation
 
 	const (
 		catalogName       = "model-validation-test-catalog"
@@ -68,20 +56,12 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 	)
 
 	BeforeAll(func() {
-		baseCatalogImage = os.Getenv("TEST_BASE_CATALOG")
-		Expect(baseCatalogImage).NotTo(BeEmpty(), "TEST_BASE_CATALOG env var must be set")
-
-		targetCatalogImage = os.Getenv("TEST_TARGET_CATALOG")
-		Expect(targetCatalogImage).NotTo(BeEmpty(), "TEST_TARGET_CATALOG env var must be set")
-
-		channelName = envOrDefault("OLM_CHANNEL", "tech-preview")
-		packageName = envOrDefault("OLM_PACKAGE", "model-validation-operator")
 
 		_, _ = fmt.Fprintf(GinkgoWriter, "OLM Upgrade Test Configuration:\n")
-		_, _ = fmt.Fprintf(GinkgoWriter, "  Base catalog: %s\n", baseCatalogImage)
-		_, _ = fmt.Fprintf(GinkgoWriter, "  Target catalog: %s\n", targetCatalogImage)
-		_, _ = fmt.Fprintf(GinkgoWriter, "  Channel: %s\n", channelName)
-		_, _ = fmt.Fprintf(GinkgoWriter, "  Package: %s\n", packageName)
+		_, _ = fmt.Fprintf(GinkgoWriter, "  Base catalog: %s\n", config.baseCatalog)
+		_, _ = fmt.Fprintf(GinkgoWriter, "  Target catalog: %s\n", config.targetCatalog)
+		_, _ = fmt.Fprintf(GinkgoWriter, "  Channel: %s\n", config.channel)
+		_, _ = fmt.Fprintf(GinkgoWriter, "  Package: %s\n", config.packageName)
 
 		DeferCleanup(func() {
 			By("cleaning up OLM test resources")
@@ -99,7 +79,7 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 		err := utils.KubectlApply(catalogSourceTemplate, utils.CatalogSourceTemplateData{
 			Name:      catalogName,
 			Namespace: olmNamespace,
-			Image:     baseCatalogImage,
+			Image:     config.baseCatalog,
 		})
 		Expect(err).NotTo(HaveOccurred(), "Failed to create CatalogSource")
 
@@ -122,8 +102,8 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 		err = utils.KubectlApply(subscriptionTemplate, utils.SubscriptionTemplateData{
 			Name:                   subscriptionName,
 			Namespace:              operatorNamespace,
-			Channel:                channelName,
-			PackageName:            packageName,
+			Channel:                config.channel,
+			PackageName:            config.packageName,
 			CatalogSourceName:      catalogName,
 			CatalogSourceNamespace: olmNamespace,
 		})
@@ -135,6 +115,9 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 				"jsonpath={.status.installedCSV}")
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(csv).NotTo(BeEmpty())
+			if config.expectedBaseCSV != "" {
+				g.Expect(csv).To(Equal(config.expectedBaseCSV))
+			}
 			baseCSV = csv
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(),
 			"Subscription should report an installed CSV")
@@ -150,21 +133,9 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(),
 			"Base CSV should reach Succeeded phase")
 
-		By("waiting for controller deployment to be available")
-		Eventually(func() error {
-			return utils.KubectlWait("deployment", "model-validation-controller-manager",
-				operatorNamespace, "condition=Available", "30s")
-		}, 3*time.Minute, 10*time.Second).Should(Succeed(),
-			"Controller deployment should be available")
-
-		By("verifying controller pod is running")
-		Eventually(func(g Gomega) {
-			output, err := utils.KubectlGet("pods", "", operatorNamespace,
-				"jsonpath={.items[?(@.metadata.labels.control-plane==\"controller-manager\")].status.phase}")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(ContainSubstring("Running"))
-		}, 2*time.Minute, 5*time.Second).Should(Succeed(),
-			"Controller pod should be running")
+		By("waiting for the installed controller revision and Pods to be ready")
+		Eventually(func() error { return controllerRolledOut(config.expectedBaseImage) },
+			3*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
 	It("should have a functioning webhook after OLM installation", func() {
@@ -174,6 +145,8 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 			Namespace: webhookTestNamespace,
 		})
 		Expect(err).NotTo(HaveOccurred(), "Failed to apply ModelValidation CR")
+		Expect(utils.KubectlGetJSON("modelvalidation", testModelName, webhookTestNamespace, &originalModel)).To(Succeed())
+		Expect(originalModel.UID).NotTo(BeEmpty())
 
 		By("deploying a test pod with model validation label")
 		err = utils.KubectlApply(podTemplate, utils.DefaultPodData(
@@ -202,13 +175,16 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 				"jsonpath={.spec.template.spec.containers[?(@.name==\"manager\")].image}")
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(img).NotTo(BeEmpty())
+			if config.expectedBaseImage != "" {
+				g.Expect(img).To(Equal(config.expectedBaseImage))
+			}
 			preUpgradeImage = img
 		}, 1*time.Minute, 5*time.Second).Should(Succeed())
 		_, _ = fmt.Fprintf(GinkgoWriter, "  Pre-upgrade image: %s\n", preUpgradeImage)
 
-		By(fmt.Sprintf("patching CatalogSource to use target catalog: %s", targetCatalogImage))
+		By(fmt.Sprintf("patching CatalogSource to use target catalog: %s", config.targetCatalog))
 		err := utils.KubectlPatch("catalogsource", catalogName, olmNamespace, "merge",
-			fmt.Sprintf(`{"spec":{"image":"%s"}}`, targetCatalogImage))
+			fmt.Sprintf(`{"spec":{"image":"%s"}}`, config.targetCatalog))
 		Expect(err).NotTo(HaveOccurred(), "Failed to patch CatalogSource")
 
 		By("waiting for CatalogSource to reconnect with updated catalog")
@@ -227,6 +203,9 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(csv).NotTo(BeEmpty())
 			g.Expect(csv).NotTo(Equal(baseCSV), "installed CSV should change after upgrade")
+			if config.expectedTargetCSV != "" {
+				g.Expect(csv).To(Equal(config.expectedTargetCSV))
+			}
 		}, 5*time.Minute, 10*time.Second).Should(Succeed(),
 			"Subscription should report a new installed CSV after upgrade")
 
@@ -245,13 +224,7 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 		}, 5*time.Minute, 10*time.Second).Should(Succeed(),
 			"Upgrade CSV should reach Succeeded phase")
 
-		By("waiting for controller deployment to be available after upgrade")
-		Eventually(func() error {
-			return utils.KubectlWait("deployment", "model-validation-controller-manager",
-				operatorNamespace, "condition=Available", "30s")
-		}, 3*time.Minute, 10*time.Second).Should(Succeed(),
-			"Controller deployment should be available after upgrade")
-
+		var targetImage string
 		By("verifying the controller image changed after upgrade")
 		Eventually(func(g Gomega) {
 			img, err := utils.KubectlGet("deployment", "model-validation-controller-manager",
@@ -259,26 +232,25 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 				"jsonpath={.spec.template.spec.containers[?(@.name==\"manager\")].image}")
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(img).NotTo(BeEmpty())
+			if config.expectedTargetImage != "" {
+				g.Expect(img).To(Equal(config.expectedTargetImage))
+			}
 			g.Expect(img).NotTo(Equal(preUpgradeImage),
 				"Controller image should change after upgrade")
+			targetImage = img
 		}, 2*time.Minute, 5*time.Second).Should(Succeed(),
 			"Controller deployment image should be updated")
+
+		By("waiting for the target controller revision and Pods to be ready")
+		Eventually(func() error { return controllerRolledOut(targetImage) },
+			3*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
 	It("should maintain functionality after upgrade", func() {
-		By("verifying existing ModelValidation CR survived the upgrade")
-		Expect(utils.KubectlResourceExists("modelvalidation", testModelName,
-			webhookTestNamespace)).To(BeTrue(),
-			"Existing ModelValidation CR should persist through upgrade")
-
-		By("verifying controller pod is running after upgrade")
-		Eventually(func(g Gomega) {
-			output, err := utils.KubectlGet("pods", "", operatorNamespace,
-				"jsonpath={.items[?(@.metadata.labels.control-plane==\"controller-manager\")].status.phase}")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(ContainSubstring("Running"))
-		}, 2*time.Minute, 5*time.Second).Should(Succeed(),
-			"Controller pod should be running after upgrade")
+		By("verifying the same ModelValidation and its complete spec survived the upgrade")
+		var preserved v1alpha1.ModelValidation
+		Expect(utils.KubectlGetJSON("modelvalidation", testModelName, webhookTestNamespace, &preserved)).To(Succeed())
+		Expect(validatePreservedModel(originalModel, preserved)).To(Succeed())
 
 		By("deploying a new test pod to verify webhook still works after upgrade")
 		Eventually(func() error {
@@ -305,10 +277,11 @@ var _ = Describe("OLM Upgrade", Ordered, func() {
 		cleanupResource("modelvalidation", testModelName, webhookTestNamespace)
 
 		By("verifying the ModelValidation CR is deleted")
-		Eventually(func() bool {
-			return utils.KubectlResourceExists("modelvalidation", testModelName, webhookTestNamespace)
-		}, 1*time.Minute, 5*time.Second).Should(BeFalse(),
-			"ModelValidation CR should be deleted after upgrade")
+		Eventually(func(g Gomega) {
+			absent, err := utils.KubectlResourceAbsent("modelvalidation", testModelName, webhookTestNamespace)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(absent).To(BeTrue())
+		}, time.Minute, 5*time.Second).Should(Succeed(), "ModelValidation CR should be deleted after upgrade")
 	})
 
 })

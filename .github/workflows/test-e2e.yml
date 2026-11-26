@@ -151,6 +151,10 @@ jobs:
         env:
           TEST_BASE_CATALOG: kind-registry:5000/sigstore/model-validation-operator-catalog:olm-base-${{ github.sha }}
           TEST_TARGET_CATALOG: kind-registry:5000/sigstore/model-validation-operator-catalog:dev-${{ github.sha }}
+          TEST_EXPECTED_BASE_CSV: model-validation-operator.v${{ env.OLM_BASE_VERSION }}
+          TEST_EXPECTED_TARGET_CSV: model-validation-operator.v${{ env.OLM_UPGRADE_VERSION }}
+          TEST_EXPECTED_BASE_IMAGE: ${{ env.BASE_IMG_LOCAL }}
+          TEST_EXPECTED_TARGET_IMAGE: ${{ env.IMG_LOCAL }}
         run: go test -tags=upgrade ./test/e2e-olm/ -v -ginkgo.v -timeout 20m
 
       - name: Clean up local registry configuration
