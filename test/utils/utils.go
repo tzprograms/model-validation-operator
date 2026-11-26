@@ -385,6 +385,13 @@ func KubectlResourceExists(resource, name, namespace string) bool {
 	return err == nil
 }
 
+// KubectlResourceAbsent distinguishes API NotFound from connectivity/authentication errors.
+func KubectlResourceAbsent(resource, name, namespace string) (bool, error) {
+	output, err := Run(exec.Command("kubectl", "get", resource, name, "-n", namespace,
+		"--ignore-not-found=true", "--request-timeout=15s", "-o", "name"))
+	return strings.TrimSpace(output) == "" && err == nil, err
+}
+
 // HasValidationContainer checks if a pod has the model-validation init container
 func HasValidationContainer(pod *corev1.Pod) bool {
 	for _, container := range pod.Spec.InitContainers {
