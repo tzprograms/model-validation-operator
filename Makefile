@@ -649,7 +649,25 @@ test-e2e-full: manifests generate fmt vet e2e-setup ## Run e2e tests with setup 
 .PHONY: test-e2e-ci
 test-e2e-ci: manifests generate fmt vet e2e-setup ## Run the e2e tests, with setup.  No teardown as the CI workflow will throw away kind
 	@echo "Running e2e tests with infrastructure setup for CI..."
+	@if [ "$${E2E_COLLECT_COVERAGE:-false}" = "true" ]; then $(MAKE) init-e2e-coverage; fi
 	go test -tags=integration ./test/e2e/ -v -ginkgo.v -timeout 30m
+
+.PHONY: docker-build-coverage
+docker-build-coverage: ## Build a test-only coverage-instrumented manager image.
+	$(CONTAINER_TOOL) build -t $(IMG) --build-arg AGENT_IMG=$(AGENT_IMG) -f Dockerfile.coverage .
+
+.PHONY: init-e2e-coverage snapshot-e2e-coverage collect-e2e-coverage test-coverage-collector
+init-e2e-coverage: ## Start a fresh E2E coverage session.
+	bash scripts/e2e-coverage.sh init
+
+snapshot-e2e-coverage: ## Save counters before restarting or terminating managers.
+	KUBECTL="$(KUBECTL)" E2E_OPERATOR_NAMESPACE="$(E2E_OPERATOR_NAMESPACE)" bash scripts/e2e-coverage.sh snapshot
+
+collect-e2e-coverage: ## Merge current and saved manager process coverage.
+	KUBECTL="$(KUBECTL)" E2E_OPERATOR_NAMESPACE="$(E2E_OPERATOR_NAMESPACE)" bash scripts/e2e-coverage.sh collect
+
+test-coverage-collector: ## Verify coverage collection with real counters and mocked Kubernetes.
+	bash scripts/test-e2e-coverage.sh
 
 ##@ OLM E2E Test Infrastructure
 

@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   test:
@@ -25,3 +26,16 @@ jobs:
       - name: Running Tests
         run: |
           make test
+
+      - name: Test E2E coverage collector without a cluster
+        run: make test-coverage-collector
+
+      - name: Upload unit coverage when reporting is enabled
+        if: ${{ vars.MVO_ENABLE_CODECOV == 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: cover.out
+          flags: unit
+          use_oidc: true
+          fail_ci_if_error: true
+          skip_validation: false

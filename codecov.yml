@@ -1,0 +1,8 @@
+# Optional reporting; uploads require repository variable MVO_ENABLE_CODECOV=true.
+flags:
+  unit:
+    carryforward: true
+    paths: [api/, cmd/, internal/]
+  e2e:
+    carryforward: true
+    paths: [cmd/, internal/]
