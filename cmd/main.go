@@ -17,8 +17,10 @@ package main
 
 import (
 	"context"
+	"crypto/fips140"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +81,8 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	var fipsStatus bool
+	flag.BoolVar(&fipsStatus, "fips-status", false, "Print the Go FIPS mode and module version, then exit.")
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -147,8 +151,13 @@ func main() {
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	if fipsStatus {
+		fmt.Printf("enabled=%t version=%s\n", fips140.Enabled(), fips140.Version())
+		return
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	setupLog.Info("Go cryptographic module", "fipsEnabled", fips140.Enabled(), "version", fips140.Version())
 
 	otelShutdown, err := metrics.SetupOTelMetrics()
 	if err != nil {

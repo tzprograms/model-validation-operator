@@ -135,6 +135,24 @@ test: manifests generate fmt vet setup-envtest test-tracing ## Run tests.
 test-tracing: ## Run tracing package tests.
 	cd pkg/tracing && go test ./...
 
+.PHONY: test-fips
+test-fips: ## Test the certified native module in strict mode and verify binary defaults.
+	# Bootstrap external tools with the standard library for their own Go version.
+	GOFIPS140=off GODEBUG=fips140=off GOFLAGS= $(MAKE) manifests generate fmt setup-envtest
+	GOFIPS140=v1.0.0 GODEBUG=fips140=only GOFLAGS= $(MAKE) vet test-tracing
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+		TEST_ASSET_ETCD="$(abspath hack/fips-envtest-etcd.sh)" \
+		TEST_ASSET_KUBE_APISERVER="$(abspath hack/fips-envtest-apiserver.sh)" \
+		GOFIPS140=v1.0.0 GODEBUG=fips140=only GOFLAGS= \
+		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	GOFIPS140=v1.0.0 GOFLAGS= $(MAKE) build-operator build-agent
+	@set -eu; for binary in bin/manager bin/validation-agent; do \
+		test "$$(env -u GODEBUG $$binary --fips-status)" = "enabled=true version=v1.0.0"; \
+		test "$$(GODEBUG=fips140=on $$binary --fips-status)" = "enabled=true version=v1.0.0"; \
+		test "$$(GODEBUG=fips140=off $$binary --fips-status)" = "enabled=false version=v1.0.0"; \
+		test "$$(GODEBUG=fips140=only $$binary --fips-status)" = "enabled=true version=v1.0.0"; \
+	done
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -289,7 +307,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.18.0
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.4.0
+GOLANGCI_LINT_VERSION ?= v2.15.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.

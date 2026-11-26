@@ -14,9 +14,9 @@
 
 # Build the manager binary
 FROM golang:1.27 AS builder
-ARG TARGETOS
-ARG TARGETARCH
-ARG AGENT_IMG
+
+# Upstream Go does not support the Red Hat host-dependent fips140=auto setting.
+ENV GOTOOLCHAIN=local
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -32,6 +32,14 @@ COPY cmd/main.go cmd/main.go
 COPY api/ api/
 COPY internal/ internal/
 COPY pkg/ pkg/
+
+# Ordinary community images retain upstream Go's non-FIPS default.
+# Declare build arguments in the consuming stage for Buildah compatibility.
+ARG TARGETOS
+ARG TARGETARCH
+ARG AGENT_IMG
+ARG GOFIPS140=off
+ENV GOFIPS140=${GOFIPS140}
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command

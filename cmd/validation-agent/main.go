@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/fips140"
 	"flag"
 	"fmt"
 	"net/http"
@@ -31,6 +32,8 @@ var (
 )
 
 func main() {
+	var fipsStatus bool
+	flag.BoolVar(&fipsStatus, "fips-status", false, "Print the Go FIPS mode and module version, then exit.")
 	var interval time.Duration
 	var healthPort int
 	var skipInitial bool
@@ -44,9 +47,14 @@ func main() {
 		"Number of consecutive periodic validation failures after which readiness is revoked. "+
 			"0 means never revoke readiness once ready (fail-open).")
 	flag.Parse()
+	if fipsStatus {
+		fmt.Printf("enabled=%t version=%s\n", fips140.Enabled(), fips140.Version())
+		return
+	}
 
 	log.SetLogger(zap.New())
 	logger := log.Log.WithName("validation-agent")
+	logger.Info("Go cryptographic module", "fipsEnabled", fips140.Enabled(), "version", fips140.Version())
 
 	logger.Info("Starting validation agent",
 		"interval", interval,
