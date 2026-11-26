@@ -11,6 +11,7 @@ spec:
   containers:
   - name: test-container
     image: busybox:latest
+    imagePullPolicy: IfNotPresent
     command: ["sh", "-c", "sleep 3600"]{{if .VolumeMounts}}
     volumeMounts:{{range .VolumeMounts}}
     - name: {{.Name}}
