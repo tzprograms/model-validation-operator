@@ -1,4 +1,17 @@
-# Optional reporting; uploads require repository variable MVO_ENABLE_CODECOV=true.
+# Proposed reporting policy; uploads require repository variable MVO_ENABLE_CODECOV=true.
+coverage:
+  status:
+    project:
+      default:
+        target: 35%
+        threshold: 0%
+        informational: false
+    patch:
+      default:
+        target: 70%
+        threshold: 0%
+        informational: false
+
 flags:
   unit:
     carryforward: true
