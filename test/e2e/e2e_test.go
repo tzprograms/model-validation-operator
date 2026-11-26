@@ -1,3 +1,5 @@
+//go:build integration
+
 // Copyright 2025 The Sigstore Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,9 +31,6 @@ import (
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "model-validation-operator-metrics-binding"
-
-// curlMetricsPodName is the name of the pod used to access the metrics endpoint
-const curlMetricsPodName = "curl-metrics"
 
 const e2eTestPodName = "e2e-test-pod"
 

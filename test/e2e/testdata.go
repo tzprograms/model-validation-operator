@@ -1,3 +1,5 @@
+//go:build integration || ha
+
 /*
 Copyright 2025.
 
@@ -17,6 +19,9 @@ limitations under the License.
 package e2e
 
 import _ "embed"
+
+// curlMetricsPodName is shared by the integration and HA suites.
+const curlMetricsPodName = "curl-metrics"
 
 // ModelValidation CR template used by multiple tests
 //

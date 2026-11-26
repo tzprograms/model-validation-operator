@@ -151,7 +151,7 @@ jobs:
         env:
           TEST_BASE_CATALOG: kind-registry:5000/sigstore/model-validation-operator-catalog:olm-base-${{ github.sha }}
           TEST_TARGET_CATALOG: kind-registry:5000/sigstore/model-validation-operator-catalog:dev-${{ github.sha }}
-        run: go test ./test/e2e-olm/ -v -ginkgo.v -timeout 20m
+        run: go test -tags=upgrade ./test/e2e-olm/ -v -ginkgo.v -timeout 20m
 
       - name: Clean up local registry configuration
         if: always()
