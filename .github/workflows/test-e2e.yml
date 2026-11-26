@@ -37,6 +37,32 @@ jobs:
       - name: Run E2E tests
         run: make test-e2e-ci
 
+  test-e2e-ha:
+    name: Test webhook high availability
+    runs-on: ubuntu-latest
+    env:
+      E2E_ALLOW_NODE_DRAIN: "true"
+      E2E_DRAIN_NODE_SELECTOR: "e2e.sigstore.dev/drain-allowed=true"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create isolated multi-node Kind cluster
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          cluster_name: kind
+          config: test/e2e/kind-ha.yaml
+      - name: Wait for nodes and approve test workers for drain
+        run: |
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          kubectl label nodes -l '!node-role.kubernetes.io/control-plane,!node-role.kubernetes.io/master' e2e.sigstore.dev/drain-allowed=true
+      - name: Run HA tests
+        run: make test-e2e-ha-ci
+
   test-e2e-olm-upgrade:
     name: Test OLM Upgrade
     runs-on: ubuntu-latest

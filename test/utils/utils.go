@@ -232,7 +232,7 @@ func KubectlDelete(yamlData []byte, opts *KubectlDeleteOptions) error {
 // KubectlGet retrieves a Kubernetes resource and returns the output
 // If name is empty, retrieves all resources of the specified type
 func KubectlGet(resource, name, namespace string, outputFormat string) (string, error) {
-	args := []string{"get", resource}
+	args := []string{"get", resource, "--request-timeout=15s"}
 	if name != "" {
 		args = append(args, name)
 	}
@@ -371,6 +371,13 @@ func KubectlDescribe(resource, name, namespace string) (string, error) {
 func KubectlResourceExists(resource, name, namespace string) bool {
 	_, err := KubectlGet(resource, name, namespace, "")
 	return err == nil
+}
+
+// KubectlResourceAbsent distinguishes NotFound from connectivity or authentication failures.
+func KubectlResourceAbsent(resource, name, namespace string) (bool, error) {
+	output, err := Run(exec.Command("kubectl", "get", resource, name, "-n", namespace,
+		"--ignore-not-found=true", "--request-timeout=15s", "-o", "name"))
+	return strings.TrimSpace(output) == "" && err == nil, err
 }
 
 // HasValidationContainer checks if a pod has the model-validation init container

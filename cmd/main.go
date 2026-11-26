@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/sigstore/model-validation-operator/internal/constants"
 	"github.com/sigstore/model-validation-operator/internal/controller"
+	"github.com/sigstore/model-validation-operator/internal/healthchecks"
 	"github.com/sigstore/model-validation-operator/internal/metrics"
 	"github.com/sigstore/model-validation-operator/internal/servicemonitor"
 	"github.com/sigstore/model-validation-operator/internal/tracker"
@@ -44,7 +46,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -87,6 +88,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var disableWebhook bool
+	var preStopDelay time.Duration
 	var forceLegacySidecar bool
 	var enableServiceMonitor bool
 	var tlsOpts []func(*tls.Config)
@@ -98,6 +100,8 @@ func main() {
 	var rateLimitQPS float64
 	var rateLimitBurst int
 	var statusUpdateTimeout time.Duration
+	flag.DurationVar(&preStopDelay, "pre-stop-delay", 0,
+		"Wait before exiting, without starting the manager (for graceful endpoint draining).")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -147,6 +151,15 @@ func main() {
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	if preStopDelay < 0 {
+		fmt.Fprintln(os.Stderr, "pre-stop-delay must not be negative")
+		os.Exit(2)
+	}
+	if preStopDelay > 0 {
+		time.Sleep(preStopDelay)
+		return
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -310,12 +323,8 @@ func main() {
 		}
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+	if err := healthchecks.Setup(mgr, webhookServer); err != nil {
+		setupLog.Error(err, "unable to set up health checks")
 		os.Exit(1)
 	}
 

@@ -651,6 +651,16 @@ test-e2e-ci: manifests generate fmt vet e2e-setup ## Run the e2e tests, with set
 	@echo "Running e2e tests with infrastructure setup for CI..."
 	go test -tags=integration ./test/e2e/ -v -ginkgo.v -timeout 30m
 
+.PHONY: test-e2e-ha test-e2e-ha-ci
+test-e2e-ha: ## Run disruptive HA tests on an already prepared isolated cluster.
+	go test -tags=ha ./test/e2e/ -v -ginkgo.v -timeout 30m
+
+test-e2e-ha-ci: manifests generate fmt vet e2e-setup ## Prepare and test two manager replicas.
+	# Explicit fixtures for this isolated lane; production scheduling/PDB ownership remains separate.
+	$(KUBECTL) apply -n $(E2E_OPERATOR_NAMESPACE) -f test/e2e/ha-pdb.yaml
+	$(KUBECTL) patch deployment/model-validation-controller-manager -n $(E2E_OPERATOR_NAMESPACE) --type=merge --patch-file=test/e2e/ha-manager-patch.yaml
+	$(MAKE) test-e2e-ha
+
 ##@ OLM E2E Test Infrastructure
 
 # OLM E2E Variables

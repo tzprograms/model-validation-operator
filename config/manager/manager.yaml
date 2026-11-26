@@ -77,6 +77,11 @@ spec:
           capabilities:
             drop:
             - "ALL"
+        # Give Service endpoint removal time to propagate before SIGTERM.
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/manager", "--pre-stop-delay=10s"]
         livenessProbe:
           httpGet:
             path: /healthz
@@ -101,4 +106,4 @@ spec:
         volumeMounts: []
       volumes: []
       serviceAccountName: controller-manager
-      terminationGracePeriodSeconds: 10
+      terminationGracePeriodSeconds: 45
