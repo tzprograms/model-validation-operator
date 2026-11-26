@@ -1,0 +1,38 @@
+name: Generated resources and CRDs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  generated:
+    name: Generated resources are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v5
+        with:
+          go-version-file: go.mod
+      - run: bash hack/verify-generated.sh
+
+  compatibility:
+    name: CRDs remain backward compatible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v5
+        with:
+          go-version-file: go.mod
+      - run: go install sigs.k8s.io/crdify@v0.6.0
+      - run: bash hack/test-crd-compatibility.sh
+      - name: Compare every existing CRD with the PR or push base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash hack/check-crd-compatibility.sh

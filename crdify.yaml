@@ -1,0 +1,10 @@
+# Fail closed on CRD changes not covered by a compatibility validation.
+conversion: Ignore
+unhandledEnforcement: Error
+validations:
+  - name: description
+    enforcement: Warn
+  - name: enum
+    enforcement: Error
+    configuration:
+      additionPolicy: Allow
