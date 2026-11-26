@@ -5,9 +5,12 @@ COPY go.mod go.sum ./
 COPY pkg/tracing/ pkg/tracing/
 RUN go mod download && go mod verify
 RUN fixture_dir="$(go list -m -f '{{.Dir}}' github.com/sigstore/model-signing)" && \
-    mkdir -p /fixtures/keys/certificate && \
+    sigstore_dir="$(go list -m -f '{{.Dir}}' github.com/sigstore/sigstore)" && \
+    mkdir -p /fixtures/keys/certificate /fixtures/keys/sigstore && \
+    cp -R "${fixture_dir}/scripts/tests/v1.1.0-sigstore" /fixtures/ && \
     cp -R "${fixture_dir}/scripts/tests/v1.1.0-certificate" /fixtures/ && \
-    cp "${fixture_dir}/scripts/tests/keys/certificate/ca-cert.pem" /fixtures/keys/certificate/
+    cp "${fixture_dir}/scripts/tests/keys/certificate/ca-cert.pem" /fixtures/keys/certificate/ && \
+    cp "${sigstore_dir}/pkg/tuf/repository/targets/trusted_root.json" /fixtures/keys/sigstore/
 
 FROM busybox
 
